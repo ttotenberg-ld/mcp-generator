@@ -1,0 +1,85 @@
+# {{ server_name }}
+
+An MCP (Model Context Protocol) server that maps to the API at `{{ default_target_url }}`.
+
+## Description
+
+This MCP server was automatically generated from an OpenAPI specification. It provides MCP functions that map to the operations defined in the API.
+
+The server acts as a bridge between MCP clients and the target REST API, translating MCP function calls into HTTP requests.
+
+## Setup
+
+1. Install the required dependencies:
+
+```
+pip install -r requirements.txt
+```
+
+2. Configure the target API URL (optional):
+
+```
+export TARGET_API_BASE_URL="{{ default_target_url }}"
+```
+
+{% if functions|selectattr("security_requirements")|list|length > 0 %}
+3. Configure authentication (if required):
+
+```
+# Uncomment and set as needed for the target API:
+# export TARGET_API_KEY="your-api-key"
+# export TARGET_API_USERNAME="your-username"
+# export TARGET_API_PASSWORD="your-password"
+# export TARGET_API_TOKEN="your-token"
+```
+{% endif %}
+
+## Running the Server
+
+Start the server:
+
+```
+python main.py
+```
+
+The server will run on port 8888 by default.
+
+## Available MCP Functions
+
+{% for func in functions %}
+### {{ func.mcp_function_name }}
+
+{% if func.description %}
+{{ func.description }}
+{% endif %}
+
+- HTTP Method: {{ func.openapi_method | upper }}
+- Path: {{ func.openapi_path }}
+{% if func.path_params %}
+- Path Parameters: {{ func.path_params|map(attribute='name')|join(', ') }}
+{% endif %}
+{% if func.query_params %}
+- Query Parameters: {{ func.query_params|map(attribute='name')|join(', ') }}
+{% endif %}
+
+{% endfor %}
+
+## Configuration
+
+The server can be configured using environment variables:
+
+- `TARGET_API_BASE_URL`: The base URL of the target API
+{% if functions|selectattr("security_requirements")|list|length > 0 %}
+- Authentication variables (see setup section)
+{% endif %}
+
+## Error Handling
+
+The server maps HTTP error codes from the target API to MCP error codes:
+
+- 400: TARGET_API_BAD_REQUEST
+- 401: TARGET_API_UNAUTHORIZED
+- 403: TARGET_API_FORBIDDEN
+- 404: TARGET_API_NOT_FOUND
+- 429: TARGET_API_RATE_LIMITED
+- 5xx: TARGET_API_SERVER_ERROR 

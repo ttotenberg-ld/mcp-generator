@@ -1,0 +1,162 @@
+"""
+MCP Function handlers for {{ server_name }}.
+
+This module contains all the handler functions that process MCP requests and make
+HTTP requests to the underlying API at {{ default_target_url }}.
+"""
+import json
+import logging
+from typing import Dict, Any
+
+import aiohttp
+from mcp import McpError
+
+import config
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("{{ server_name }}.handlers")
+
+# Dictionary to hold all function handlers
+function_handlers = {}
+
+{% for func in functions %}
+async def handle_{{ func.mcp_function_name }}(params: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handler for the {{ func.mcp_function_name }} MCP function.
+    
+    Makes an HTTP {{ func.openapi_method.upper() }} request to {{ func.openapi_path }}.
+    {% if func.description %}
+    {{ func.description }}
+    {% endif %}
+    """
+    logger.info(f"Handling {{ func.mcp_function_name }} with params: {params}")
+    
+    # 1. Construct the target URL
+    path = "{{ func.openapi_path }}"
+    {% for p_param in func.path_params %}
+    # Replace path parameter {{'{'}}{{ p_param.name }}{{'}'}}} with the value from params
+    if "{{ p_param.name }}" not in params:
+        raise McpError(
+            code="MISSING_PARAMETER",
+            message="Missing required path parameter: {{ p_param.name }}"
+        )
+    path = path.replace("{{'{'}}{{ p_param.name }}{{'}'}}}", str(params["{{ p_param.name }}"]))
+    {% endfor %}
+    
+    target_url = config.TARGET_API_BASE_URL.rstrip('/') + path
+    
+    # 2. Prepare query parameters
+    query_params = {}
+    {% for q_param in func.query_params %}
+    if "{{ q_param.name }}" in params:
+        query_params["{{ q_param.name }}"] = params["{{ q_param.name }}"]
+    {% if q_param.get('required', False) %}
+    else:
+        raise McpError(
+            code="MISSING_PARAMETER",
+            message="Missing required query parameter: {{ q_param.name }}"
+        )
+    {% endif %}
+    {% endfor %}
+    
+    # 3. Prepare headers
+    headers = {
+        'Accept': 'application/json'
+    }
+    
+    {% for h_param in func.header_params %}
+    if "{{ h_param.name }}" in params:
+        headers["{{ h_param.name }}"] = str(params["{{ h_param.name }}"])
+    {% if h_param.get('required', False) %}
+    else:
+        raise McpError(
+            code="MISSING_PARAMETER",
+            message="Missing required header parameter: {{ h_param.name }}"
+        )
+    {% endif %}
+    {% endfor %}
+    
+    # Add authentication if configured
+    # Uncomment and adjust based on your API's authentication requirements
+    # if hasattr(config, "TARGET_API_KEY") and config.TARGET_API_KEY:
+    #     headers["Authorization"] = f"Bearer {config.TARGET_API_KEY}"
+    # or
+    #     headers["X-API-Key"] = config.TARGET_API_KEY
+    
+    # 4. Prepare request body (if applicable)
+    {% if func.request_body_schema %}
+    request_body = None
+    if "body" in params:
+        request_body = params["body"]
+        headers["Content-Type"] = "application/json"
+    {% else %}
+    request_body = None
+    {% endif %}
+    
+    # 5. Make the HTTP request to the target API
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.{{ func.openapi_method }}(
+                target_url,
+                params=query_params,
+                headers=headers,
+                json=request_body
+            ) as response:
+                logger.info(f"Target API response status: {response.status}")
+                
+                # 6. Process the response
+                if 200 <= response.status < 300:  # Successful response
+                    try:
+                        # Try to parse as JSON
+                        result = await response.json()
+                        return result
+                    except aiohttp.ContentTypeError:
+                        # If it's not JSON, return the raw text
+                        content = await response.text()
+                        return {"content": content}
+                else:
+                    # Handle error response
+                    try:
+                        error_data = await response.json()
+                        error_detail = json.dumps(error_data)
+                    except (aiohttp.ContentTypeError, json.JSONDecodeError):
+                        error_detail = await response.text()
+                    
+                    error_mapping = {
+                        400: "BAD_REQUEST",
+                        401: "UNAUTHORIZED",
+                        403: "FORBIDDEN",
+                        404: "NOT_FOUND",
+                        429: "RATE_LIMITED",
+                        500: "SERVER_ERROR",
+                        502: "BAD_GATEWAY",
+                        503: "SERVICE_UNAVAILABLE",
+                        504: "GATEWAY_TIMEOUT"
+                    }
+                    
+                    error_code = error_mapping.get(response.status, f"HTTP_{response.status}")
+                    
+                    raise McpError(
+                        code=f"TARGET_API_{error_code}",
+                        message=f"Target API returned {response.status}",
+                        details=error_detail
+                    )
+    except aiohttp.ClientError as e:
+        # Handle connection errors
+        logger.error(f"HTTP request error: {e}")
+        raise McpError(
+            code="CONNECTION_ERROR",
+            message=f"Failed to connect to target API: {str(e)}"
+        )
+    except Exception as e:
+        # Handle unexpected errors
+        logger.exception(f"Unexpected error in handler: {e}")
+        raise McpError(
+            code="INTERNAL_ERROR",
+            message=f"An unexpected error occurred: {str(e)}"
+        )
+
+# Register the handler function
+function_handlers["{{ func.mcp_function_name }}"] = handle_{{ func.mcp_function_name }}
+{% endfor %} 

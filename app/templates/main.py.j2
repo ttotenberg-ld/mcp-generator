@@ -1,0 +1,67 @@
+"""
+Main entry point for the {{ server_name }} MCP server.
+
+This server provides MCP functions that map to the following API:
+{{ default_target_url }}
+"""
+import asyncio
+import logging
+from mcp import McpServer, FunctionRegistry, Capability
+
+import config
+from handlers import function_handlers
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger("{{ server_name }}")
+
+# Define capabilities for all MCP functions
+capabilities = []
+
+{% for func in functions %}
+# Capability for {{ func.mcp_function_name }}
+capabilities.append(
+    Capability(
+        name="mcp.function",
+        options={
+            "name": "{{ func.mcp_function_name }}",
+            "description": """{{ func.description | replace('"', '\\"') }}""",
+            "input_schema": {{ func.input_schema_json }},
+            "output_schema": {{ func.output_schema_json }}
+        }
+    )
+)
+{% endfor %}
+
+async def main():
+    """Start the MCP server."""
+    # Create function registry
+    registry = FunctionRegistry()
+    
+    # Register all function handlers
+    {% for func in functions %}
+    registry.register("{{ func.mcp_function_name }}")(function_handlers["{{ func.mcp_function_name }}"])
+    {% endfor %}
+    
+    # Create and start the MCP server
+    server = McpServer(
+        host="0.0.0.0",
+        port=8888,
+        registry=registry,
+        capabilities=capabilities,
+    )
+    
+    logger.info("Starting {{ server_name }} MCP Server")
+    logger.info(f"Target API: {config.TARGET_API_BASE_URL}")
+    logger.info(f"Registered functions: {len(function_handlers)}")
+    
+    await server.start()
+    
+    # Keep the server running until interrupted
+    await server.wait_closed()
+
+if __name__ == "__main__":
+    asyncio.run(main()) 
