@@ -6,7 +6,7 @@ This server provides MCP functions that map to the following API:
 """
 import asyncio
 import logging
-from mcp import McpServer, FunctionRegistry, Capability
+from mcp import Server, FunctionRegistry, Capability
 
 import config
 from handlers import function_handlers
@@ -47,7 +47,7 @@ async def main():
     {% endfor %}
     
     # Create and start the MCP server
-    server = McpServer(
+    server = Server(
         host="0.0.0.0",
         port=8888,
         registry=registry,
